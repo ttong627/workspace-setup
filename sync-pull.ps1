@@ -56,6 +56,35 @@ else {
     Log "claude-config 미연결(~/.claude에 .git 없음) — 1회 수동 부트스트랩 필요"
 }
 
+# ---------------------------------------------------------------------
+# 추가) 산하 공통룰/SSOT 배포 (claude-config의 shared-rules -> 실제 경로)
+#   ~/.claude/shared-rules/ 의 파일을 Claude가 자동 로드하는 위치로 복사.
+#   비공개 claude-config에 보관하므로 계정/호스트 정보가 공개 노출되지 않음.
+#   내용이 같으면 건너뛰어 불필요한 갱신/타임스탬프 변경을 막음.
+# ---------------------------------------------------------------------
+$shared = Join-Path $env:USERPROFILE ".claude\shared-rules"
+if (Test-Path $shared) {
+    $ttRoot = Split-Path $Root -Parent     # new_project 의 부모 = TTong_total 루트
+    $map = @{
+        (Join-Path $shared "PROJECTS_INDEX.md")     = (Join-Path $ttRoot "PROJECTS_INDEX.md")
+        (Join-Path $shared "new_project_CLAUDE.md") = (Join-Path $Root "CLAUDE.md")
+    }
+    foreach ($src in $map.Keys) {
+        $dst = $map[$src]
+        if (Test-Path $src) {
+            $needCopy = $true
+            if (Test-Path $dst) {
+                $needCopy = (Get-FileHash $src).Hash -ne (Get-FileHash $dst).Hash
+            }
+            if ($needCopy) {
+                New-Item -ItemType Directory -Force -Path (Split-Path $dst -Parent) | Out-Null
+                Copy-Item $src $dst -Force
+                Log "공통룰 배포: $(Split-Path $src -Leaf) -> $dst"
+            }
+        }
+    }
+}
+
 # 로그 비대화 방지: 2000줄 초과 시 최근 1000줄만 유지
 try {
     $lines = Get-Content $log -ErrorAction Stop

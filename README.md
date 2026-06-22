@@ -38,6 +38,26 @@ irm https://raw.githubusercontent.com/ttong627/workspace-setup/main/setup-worksp
 - **방향은 받기 전용**: 각 PC는 GitHub에서 코드를 받기만 함. **작업 결과는 평소대로 `git push`** 하면 → 기흥 허브 PC가 1시간 내 자동 수집.
 - **로그**: `%LOCALAPPDATA%\TTongWorkspace\sync-pull.log`
 
+## Claude 작업환경(~/.claude) 동기화 — 스킬·룰·에이전트 (2026-06-22 추가)
+
+프로젝트 코드와 **별개 라인**으로, Claude Code의 스킬·룰·에이전트·명령어(한글 `작업/확인/검사` 등)·훅·`settings.json`을
+모든 PC에서 동일하게 유지한다. 동기화 repo: **`ttong0627/claude-config`(비공개)** — `~/.claude` 자체가 git repo다.
+시크릿/세션/`.credentials.json`은 `.gitignore`(allowlist 방식)로 제외되어 절대 올라가지 않는다.
+
+- **자동 pull**: 위 `TTong-Workspace-Sync` 워커가 매시간 프로젝트 코드 pull 끝에 `~/.claude`도 `--ff-only`로 pull한다.
+  (이미 `.git` 연결된 경우에만. 메인 루프와 같은 자격증명 사용 — 추가 계정전환 없음.)
+- **새 PC 1회 부트스트랩**(아직 `~/.claude`가 git 연결 안 된 PC). 활성 계정이 `ttong0627`이어야 함:
+  ```powershell
+  gh auth switch --user ttong0627
+  $c="$HOME\.claude"; if(Test-Path "$c\.git"){git -C $c pull --ff-only}else{if(Test-Path $c){Rename-Item $c "$c.bak_$(Get-Date -Format yyyyMMddHHmmss)"};git clone https://github.com/ttong0627/claude-config.git $c}
+  ```
+- **기존 PC 워커 갱신**(이 기능 추가 전 setup한 PC, PC당 1회):
+  ```powershell
+  irm https://raw.githubusercontent.com/ttong627/workspace-setup/main/sync-pull.ps1 -OutFile "$env:LOCALAPPDATA\TTongWorkspace\sync-pull.ps1"
+  ```
+- **주의**: `claude-config`는 `ttong0627` 비공개라, 활성 gh 계정이 `ttong627`이면 pull이 "Repository not found"로 막힌다.
+  막히면 `gh auth switch --user ttong0627` 한 번. (Gemma4 프로젝트는 `ttong627`이므로 작업 계정과 헷갈리지 말 것.)
+
 ## 설치 후 수동 작업 3가지
 
 1. **DaVinci Resolve**: 공식 사이트에서 직접 다운로드 (winget 불가)

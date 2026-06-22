@@ -39,6 +39,23 @@ Get-ChildItem -Path $Root -Directory | ForEach-Object {
 }
 Log "동기화 끝 — 성공 $ok / 스킵 $skip"
 
+# ---------------------------------------------------------------------
+# 추가) Claude Code 작업환경(~/.claude = claude-config) 동기화
+#   - 이미 git repo로 연결된 경우에만 안전하게 pull (--ff-only)
+#   - 로그인 토큰/세션은 .gitignore로 보호되어 건드리지 않음
+#   - 아직 연결 안 된 PC는 1회 수동 부트스트랩 필요
+#     (백그라운드 자동 clone은 로그인 꼬임 방지를 위해 일부러 안 함)
+# ---------------------------------------------------------------------
+$claudeDir = Join-Path $env:USERPROFILE ".claude"
+if (Test-Path (Join-Path $claudeDir ".git")) {
+    $cout = git -C $claudeDir pull --ff-only 2>&1
+    if ($LASTEXITCODE -eq 0) { Log "claude-config(~/.claude) 동기화 OK" }
+    else { Log "claude-config 스킵: $cout" }
+}
+else {
+    Log "claude-config 미연결(~/.claude에 .git 없음) — 1회 수동 부트스트랩 필요"
+}
+
 # 로그 비대화 방지: 2000줄 초과 시 최근 1000줄만 유지
 try {
     $lines = Get-Content $log -ErrorAction Stop

@@ -27,8 +27,9 @@ function Refresh-Path {
     $env:Path = "$machine;$user"
 }
 
-# 클론 루트 결정: T 드라이브 있으면 허브와 동일, 없으면 사용자 폴더
+# 클론 루트 결정: E:\TTong_newproject 있으면 최우선, 다음 T 드라이브(허브), 없으면 사용자 폴더
 function Resolve-Root {
+    if (Test-Path "E:\TTong_newproject") { return "E:\TTong_newproject" }
     if (Test-Path "T:\TTong_total") { return "T:\TTong_total\new_project" }
     return (Join-Path $env:USERPROFILE "TTong_total\new_project")
 }

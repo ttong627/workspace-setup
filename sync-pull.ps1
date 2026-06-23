@@ -11,7 +11,8 @@ $ErrorActionPreference = "Continue"
 
 # Root 미지정 시 자동 탐지 (setup과 동일 규칙)
 if (-not $Root -or -not (Test-Path $Root)) {
-    if (Test-Path "T:\TTong_total\new_project") { $Root = "T:\TTong_total\new_project" }
+    if (Test-Path "E:\TTong_newproject") { $Root = "E:\TTong_newproject" }
+    elseif (Test-Path "T:\TTong_total\new_project") { $Root = "T:\TTong_total\new_project" }
     else { $Root = Join-Path $env:USERPROFILE "TTong_total\new_project" }
 }
 

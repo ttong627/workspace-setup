@@ -52,6 +52,7 @@ $apps = @(
     @{ id = "Python.Python.3.12";         name = "Python 3.12 (코딩)";   scope = "user" },
     @{ id = "Ollama.Ollama";              name = "Ollama (로컬 LLM 엔진)" },
     @{ id = "Obsidian.Obsidian";          name = "Obsidian (지식베이스)" },
+    @{ id = "Google.CloudSDK";            name = "Google Cloud SDK (버킷 동기화)" },
     @{ id = "ByteDance.CapCut";           name = "CapCut (영상편집)" },
     @{ id = "Microsoft.Office";           name = "MS Office (문서)" }
 )
@@ -241,17 +242,58 @@ catch {
     Write-Host "[경고] Gemma4 두뇌/서버 셋업 실패: $($_.Exception.Message)" -ForegroundColor DarkYellow
 }
 
+# ── 5-b) 버킷 공유데이터(pull.ps1) + 시크릿(secrets_pull.ps1) ──────────
+#   형 방식 그대로: GCS 버킷 gemma4-shared-ttong627 에서 마스킹 공유본을 받고,
+#   .env·키·토큰은 GCP Secret Manager 에서 제자리 복원. 스크립트는 버킷 _manifest/ 사본.
+$GcsAccount = "ttong627@gmail.com"
+$GcsBucket  = "gs://gemma4-shared-ttong627"
+if (Get-Command gcloud -ErrorAction SilentlyContinue) {
+    $loggedIn = (gcloud auth list --filter="account=$GcsAccount" --format="value(account)" 2>$null)
+    if (-not $loggedIn) {
+        Write-Host "`n[안내] 버킷 데이터/시크릿을 받으려면 구글 로그인이 필요합니다:" -ForegroundColor Yellow
+        Write-Host "    gcloud auth login $GcsAccount" -ForegroundColor White
+        Write-Host "  로그인 후 이 한 줄을 다시 실행하면 데이터·시크릿까지 복원됩니다." -ForegroundColor DarkYellow
+    }
+    else {
+        try {
+            $mf = Join-Path $ToolsDir "_manifest"
+            New-Item -ItemType Directory -Force -Path $mf | Out-Null
+            Write-Step "버킷에서 동기화 스크립트(pull/secrets) 받는 중..."
+            gcloud storage cp "$GcsBucket/_manifest/pull.ps1"         (Join-Path $mf "pull.ps1")         --quiet 2>$null
+            gcloud storage cp "$GcsBucket/_manifest/secrets_pull.ps1" (Join-Path $mf "secrets_pull.ps1") --quiet 2>$null
+
+            if (Test-Path (Join-Path $mf "pull.ps1")) {
+                Write-Step "공유데이터 내려받기(pull.ps1 -> D:\Gemma4_shared, 마스킹본)..."
+                powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $mf "pull.ps1")
+                Write-Host "  공유데이터 준비 완료 (D:\Gemma4_shared\gemma4, ttong_project)." -ForegroundColor Green
+            }
+            if (Test-Path (Join-Path $mf "secrets_pull.ps1")) {
+                Write-Step "시크릿(.env·키·토큰) 제자리 복원(secrets_pull.ps1)..."
+                powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $mf "secrets_pull.ps1")
+                Write-Host "  시크릿 복원 완료." -ForegroundColor Green
+            }
+        }
+        catch {
+            Write-Host "  [경고] 버킷 데이터/시크릿 복원 실패: $($_.Exception.Message)" -ForegroundColor DarkYellow
+            Write-Host "  수동: gcloud storage cp $GcsBucket/_manifest/pull.ps1 .; ./pull.ps1" -ForegroundColor DarkYellow
+        }
+    }
+}
+else {
+    Write-Host "[안내] gcloud 미인식(방금 설치됨). 새 터미널에서 이 한 줄을 다시 실행하면 버킷 데이터까지 받습니다." -ForegroundColor Yellow
+}
+
 # ---------------------------------------------------------------------
 # 마무리 안내
 # ---------------------------------------------------------------------
 Write-Head "세팅 완료! 남은 수동 작업"
 Write-Host "1. DaVinci Resolve : 공식 사이트에서 직접 다운로드 (자동설치 불가)" -ForegroundColor White
 Write-Host "2. MS Office       : 워드 실행 후 Microsoft 계정 로그인" -ForegroundColor White
-Write-Host "3. .env(비밀키)    : GitHub엔 없음 -> 기흥 PC에서 해당 프로젝트의 .env만 따로 복사" -ForegroundColor White
-Write-Host "4. Obsidian Vault  : 앱 실행 후 '폴더를 보관소로 열기' -> $GemmaDir\Dbsidian\Obsidian 선택" -ForegroundColor White
-Write-Host "5. 원본자료(16.5GB): 웰쉐어/사협 등 대용량 회사파일은 Git 제외 -> OneDrive 등 클라우드로 별도 동기화" -ForegroundColor White
-Write-Host "`n[참고] 코드 위치: $Root  /  Gemma4 두뇌: $GemmaDir  /  자동 pull: 1시간마다" -ForegroundColor Cyan
-Write-Host "[참고] gemma4 확인: ollama list  /  프록시 상태: http://127.0.0.1:8765/health" -ForegroundColor Cyan
-Write-Host "[참고] 작업 후엔 평소대로 git push -> 기흥 허브 PC가 1시간 내 자동 수집" -ForegroundColor Cyan
+Write-Host "3. 버킷 로그인 안됐으면 : gcloud auth login $GcsAccount 실행 후 이 한 줄 재실행(데이터/시크릿 복원)" -ForegroundColor White
+Write-Host "4. Obsidian Vault  : 앱 실행 후 [폴더를 보관소로 열기] -> D:\Gemma4_shared\gemma4\Dbsidian\Obsidian (공유 마스킹본)" -ForegroundColor White
+Write-Host "`n[참고] 코드: $Root, $GemmaDir (GitHub)  /  공유데이터: D:\Gemma4_shared (버킷 마스킹본)" -ForegroundColor Cyan
+Write-Host "[참고] gemma4 확인: ollama list  /  프록시: http://127.0.0.1:8765/health" -ForegroundColor Cyan
+Write-Host "[참고] 3-라인 동기화: 코드=GitHub / 데이터=GCS버킷(pull,push.ps1) / 시크릿=Secret Manager" -ForegroundColor Cyan
+Write-Host "[참고] 허브에서 데이터 갱신: push.ps1 (PII 자동 마스킹 후 버킷 rsync)" -ForegroundColor Cyan
 Start-Process "https://www.blackmagicdesign.com/products/davinciresolve"
 Write-Host "`n끝! 새 터미널을 열면 모든 명령어가 인식됩니다." -ForegroundColor Green

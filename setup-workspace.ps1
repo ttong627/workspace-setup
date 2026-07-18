@@ -50,11 +50,13 @@ $apps = @(
     @{ id = "Microsoft.VisualStudioCode"; name = "VS Code (코드편집기)"; scope = "user" },
     @{ id = "GitHub.cli";                 name = "GitHub CLI (동기화)" },
     @{ id = "Python.Python.3.12";         name = "Python 3.12 (코딩)";   scope = "user" },
+    @{ id = "Ollama.Ollama";              name = "Ollama (로컬 LLM 엔진)" },
+    @{ id = "Obsidian.Obsidian";          name = "Obsidian (지식베이스)" },
     @{ id = "ByteDance.CapCut";           name = "CapCut (영상편집)" },
     @{ id = "Microsoft.Office";           name = "MS Office (문서)" }
 )
 
-Write-Head "1단계 / 3 : 도구 설치"
+Write-Head "1단계 / 5 : 도구 설치"
 foreach ($app in $apps) {
     Write-Step "$($app.name) 설치 중..."
     $wargs = @("install", "-e", "--id", $app.id, "--accept-package-agreements", "--accept-source-agreements")
@@ -66,7 +68,7 @@ Refresh-Path
 # ---------------------------------------------------------------------
 # 2단계) 코드 클론 (gh 로그인 필요)
 # ---------------------------------------------------------------------
-Write-Head "2단계 / 3 : 프로젝트 코드 클론"
+Write-Head "2단계 / 5 : 프로젝트 코드 클론"
 
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     Write-Host "[안내] 새 터미널을 열고 이 명령을 다시 실행하세요. (방금 깐 gh가 인식되어야 합니다)" -ForegroundColor Yellow
@@ -101,6 +103,8 @@ foreach ($acct in $Accounts) {
     }
     foreach ($full in $repos) {
         $name = ($full -split "/")[-1]
+        # Gemma4는 5단계에서 D:\Gemma4로 전용 클론(MCP 서버 경로 고정) -> 여기선 건너뜀
+        if ($name -eq "Gemma4") { continue }
         $dest = Join-Path $Root $name
         if (Test-Path (Join-Path $dest ".git")) {
             git -C $dest pull --ff-only 2>$null | Out-Null
@@ -120,7 +124,7 @@ if ($failed.Count -gt 0) { Write-Host "실패/스킵: $($failed -join ', ')" -Fo
 # ---------------------------------------------------------------------
 # 3단계) 자동 동기화 작업 등록 (1시간마다 + 로그인 시, 창 없이)
 # ---------------------------------------------------------------------
-Write-Head "3단계 / 3 : 자동 동기화 등록 (1시간마다 pull)"
+Write-Head "3단계 / 5 : 자동 동기화 등록 (1시간마다 pull)"
 
 New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null
 $syncScript = Join-Path $ToolsDir "sync-pull.ps1"
@@ -151,13 +155,103 @@ catch {
 }
 
 # ---------------------------------------------------------------------
+# 4단계) Ollama 로컬 LLM + gemma4 모델 (집 PC와 동일 재현)
+# ---------------------------------------------------------------------
+Write-Head "4단계 / 5 : Ollama + gemma4 모델 (9.6GB)"
+
+Refresh-Path
+if (Get-Command ollama -ErrorAction SilentlyContinue) {
+    # gemma4 는 registry.ollama.ai/library 공식 모델 -> pull 로 집 PC와 100% 동일 재현
+    $have = (ollama list 2>$null | Select-String -Pattern "^gemma4")
+    if ($have) {
+        Write-Host "  gemma4 모델 이미 있음 (건너뜀)." -ForegroundColor DarkGray
+    }
+    else {
+        Write-Step "gemma4 모델 내려받는 중... (9.6GB, 회선에 따라 수 분~수십 분)"
+        ollama pull gemma4
+        if ($LASTEXITCODE -eq 0) { Write-Host "  gemma4 모델 준비 완료." -ForegroundColor Green }
+        else { Write-Host "  [경고] gemma4 pull 실패 — 나중에 'ollama pull gemma4' 수동 실행." -ForegroundColor DarkYellow }
+    }
+}
+else {
+    Write-Host "[안내] ollama 명령을 아직 못 찾음(방금 설치됨). 새 터미널에서 이 한 줄을 다시 실행하면 모델까지 받습니다." -ForegroundColor Yellow
+}
+
+# ---------------------------------------------------------------------
+# 5단계) Gemma4 두뇌 + MCP/프록시 서버 (D:\Gemma4 고정)
+#   - private repo(ttong0627/Gemma4) = 서버코드 + 지식베이스(나무위키/학습) 두뇌
+#   - .venv 생성 + 의존성 설치 + 로그인 시 프록시 자동기동 등록
+# ---------------------------------------------------------------------
+Write-Head "5단계 / 5 : Gemma4 두뇌 + 서버"
+
+# MCP 서버가 D:\Gemma4 를 하드코딩 -> D 드라이브 있으면 D:\Gemma4, 없으면 사용자 폴더
+$GemmaDir = if (Test-Path "D:\") { "D:\Gemma4" } else { Join-Path $env:USERPROFILE "Gemma4" }
+if ($GemmaDir -ne "D:\Gemma4") {
+    Write-Host "[주의] 이 PC엔 D: 드라이브가 없어 $GemmaDir 에 설치합니다." -ForegroundColor DarkYellow
+    Write-Host "       MCP 서버 경로(D:\Gemma4)와 다르면 config 조정이 필요할 수 있습니다." -ForegroundColor DarkYellow
+}
+
+try {
+    gh auth switch --user ttong0627 2>$null | Out-Null
+    if (Test-Path (Join-Path $GemmaDir ".git")) {
+        Write-Step "Gemma4 두뇌 업데이트(pull)..."
+        git -C $GemmaDir pull --ff-only 2>$null | Out-Null
+    }
+    else {
+        Write-Step "Gemma4 두뇌 클론(신규)..."
+        gh repo clone ttong0627/Gemma4 $GemmaDir 2>$null | Out-Null
+    }
+
+    if (Test-Path (Join-Path $GemmaDir "requirements_server.txt")) {
+        # 파이썬 가상환경 + 서버 의존성
+        $venvPy = Join-Path $GemmaDir ".venv\Scripts\python.exe"
+        if (-not (Test-Path $venvPy)) {
+            Write-Step "파이썬 가상환경(.venv) 생성..."
+            python -m venv (Join-Path $GemmaDir ".venv") 2>$null
+        }
+        if (Test-Path $venvPy) {
+            Write-Step "서버 의존성 설치(fastapi/uvicorn/mcp 등)..."
+            & $venvPy -m pip install --upgrade pip 2>$null | Out-Null
+            & $venvPy -m pip install -r (Join-Path $GemmaDir "requirements_server.txt") 2>$null | Out-Null
+            Write-Host "  의존성 설치 완료." -ForegroundColor Green
+        }
+
+        # 로그인 시 Ollama 프록시(:8765) 자동기동 등록 (경로 $GemmaDir 반영)
+        $pyw = Join-Path $GemmaDir ".venv\Scripts\pythonw.exe"
+        $srv = Join-Path $GemmaDir "server_ollama.py"
+        if ((Test-Path $pyw) -and (Test-Path $srv)) {
+            try {
+                $act = New-ScheduledTaskAction -Execute $pyw -Argument "`"$srv`"" -WorkingDirectory $GemmaDir
+                $trg = New-ScheduledTaskTrigger -AtLogOn
+                $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
+                Register-ScheduledTask -TaskName "Gemma4_Ollama_Proxy" -Action $act -Trigger $trg -Settings $set -Force -Description "Gemma4 Ollama proxy (:8765) auto-start at logon" -ErrorAction Stop | Out-Null
+                Start-ScheduledTask -TaskName "Gemma4_Ollama_Proxy" 2>$null
+                Write-Host "  Gemma4 프록시 자동기동 등록 완료 (로그인 시 :8765)." -ForegroundColor Green
+            }
+            catch {
+                Write-Host "  [안내] 프록시 자동기동 등록은 건너뜀(권한). 수동: $GemmaDir\register_ollama_proxy_task.ps1" -ForegroundColor DarkYellow
+            }
+        }
+    }
+    else {
+        Write-Host "  [경고] Gemma4 클론 실패 — ttong0627 로그인 여부 확인." -ForegroundColor DarkYellow
+    }
+}
+catch {
+    Write-Host "[경고] Gemma4 두뇌/서버 셋업 실패: $($_.Exception.Message)" -ForegroundColor DarkYellow
+}
+
+# ---------------------------------------------------------------------
 # 마무리 안내
 # ---------------------------------------------------------------------
 Write-Head "세팅 완료! 남은 수동 작업"
 Write-Host "1. DaVinci Resolve : 공식 사이트에서 직접 다운로드 (자동설치 불가)" -ForegroundColor White
 Write-Host "2. MS Office       : 워드 실행 후 Microsoft 계정 로그인" -ForegroundColor White
 Write-Host "3. .env(비밀키)    : GitHub엔 없음 -> 기흥 PC에서 해당 프로젝트의 .env만 따로 복사" -ForegroundColor White
-Write-Host "`n[참고] 코드 위치: $Root  /  자동 pull: 1시간마다 백그라운드" -ForegroundColor Cyan
+Write-Host "4. Obsidian Vault  : 앱 실행 후 '폴더를 보관소로 열기' -> $GemmaDir\Dbsidian\Obsidian 선택" -ForegroundColor White
+Write-Host "5. 원본자료(16.5GB): 웰쉐어/사협 등 대용량 회사파일은 Git 제외 -> OneDrive 등 클라우드로 별도 동기화" -ForegroundColor White
+Write-Host "`n[참고] 코드 위치: $Root  /  Gemma4 두뇌: $GemmaDir  /  자동 pull: 1시간마다" -ForegroundColor Cyan
+Write-Host "[참고] gemma4 확인: ollama list  /  프록시 상태: http://127.0.0.1:8765/health" -ForegroundColor Cyan
 Write-Host "[참고] 작업 후엔 평소대로 git push -> 기흥 허브 PC가 1시간 내 자동 수집" -ForegroundColor Cyan
 Start-Process "https://www.blackmagicdesign.com/products/davinciresolve"
 Write-Host "`n끝! 새 터미널을 열면 모든 명령어가 인식됩니다." -ForegroundColor Green

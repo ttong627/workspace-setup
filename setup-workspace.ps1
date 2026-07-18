@@ -266,6 +266,23 @@ if (Get-Command gcloud -ErrorAction SilentlyContinue) {
                 Write-Step "공유데이터 내려받기(pull.ps1 -> D:\Gemma4_shared, 마스킹본)..."
                 powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $mf "pull.ps1")
                 Write-Host "  공유데이터 준비 완료 (D:\Gemma4_shared\gemma4, ttong_project)." -ForegroundColor Green
+
+                # ── 5-c) 지식베이스/학습데이터를 MCP가 읽는 위치($GemmaDir)로 병합 ──
+                #   MCP 서버(mcp_server.py)는 D:\Gemma4 기준으로 Dbsidian·learning_queue 등을 읽는다.
+                #   pull 받은 마스킹본(D:\Gemma4_shared\gemma4)을 $GemmaDir 로 병합해야 젬마4가 두뇌를 참조한다.
+                #   (clone된 코드 파일은 버킷 gemma4/에 없으므로 robocopy가 건드리지 않음)
+                $SharedGemma = "D:\Gemma4_shared\gemma4"
+                if (Test-Path $SharedGemma) {
+                    Write-Step "지식베이스/학습데이터를 $GemmaDir 로 병합(robocopy)..."
+                    # /E 하위폴더 포함, /XO 더 오래된 원본만 스킵(최신 마스킹본 우선), 로그 최소화
+                    robocopy $SharedGemma $GemmaDir /E /XO /R:1 /W:1 /NFL /NDL /NJH /NJS /NC /NS 2>$null | Out-Null
+                    # robocopy 종료코드 0~7 = 정상(8+ 만 오류)
+                    if ($LASTEXITCODE -lt 8) { Write-Host "  두뇌 병합 완료: $GemmaDir 에 Dbsidian/learning_queue 등 채워짐." -ForegroundColor Green }
+                    else { Write-Host "  [경고] 두뇌 병합 실패(robocopy code $LASTEXITCODE). 수동: robocopy $SharedGemma $GemmaDir /E" -ForegroundColor DarkYellow }
+                }
+                else {
+                    Write-Host "  [안내] $SharedGemma 없음 — pull이 완료됐는지 확인 후 재실행하세요." -ForegroundColor DarkYellow
+                }
             }
             if (Test-Path (Join-Path $mf "secrets_pull.ps1")) {
                 Write-Step "시크릿(.env·키·토큰) 제자리 복원(secrets_pull.ps1)..."

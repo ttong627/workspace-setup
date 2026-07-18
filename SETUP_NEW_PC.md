@@ -57,7 +57,7 @@ irm https://raw.githubusercontent.com/ttong627/workspace-setup/main/setup-worksp
 - 두 계정 전 프로젝트 코드 clone + **1시간마다 자동 pull** 등록
 - **`ollama pull gemma4`** — 집 PC와 100% 동일한 9.6GB 모델 재현
 - **`D:\Gemma4` 서버코드 clone** + `.venv` + 의존성 + 프록시(:8765) 자동기동 등록
-- **② 데이터**: 버킷 `pull.ps1` → `D:\Gemma4_shared` (Vault·학습데이터 마스킹 공유본)
+- **② 데이터**: 버킷 `pull.ps1` → `D:\Gemma4_shared` (마스킹 공유본) → **`robocopy`로 `D:\Gemma4`에 병합** (MCP 서버가 읽는 위치에 Dbsidian·learning_queue 채움)
 - **③ 시크릿**: `secrets_pull.ps1` → .env·키·토큰 제자리 복원
 
 > 모델 다운로드(9.6GB)로 시간이 걸립니다. "ollama/gcloud 못 찾음" 안내가 나오면
@@ -73,7 +73,7 @@ claude
 1. `claude` 실행 후 `/` → **`/작업` `/확인` `/검사`** 보이면 스킬 OK
 2. `ollama list` → `gemma4:latest` 9.6GB 보이면 OK
 3. `curl http://127.0.0.1:8765/health` → 프록시 응답 OK (로그인 후 자동 기동)
-4. Obsidian 실행 → "폴더를 보관소로 열기" → `D:\Gemma4_shared\gemma4\Dbsidian\Obsidian` (공유 마스킹본)
+4. Obsidian 실행 → "폴더를 보관소로 열기" → `D:\Gemma4\Dbsidian\Obsidian` (병합된 마스킹본, MCP와 동일 경로)
 5. 자동작업 확인:
    ```powershell
    schtasks /query /tn "TTong-Workspace-Sync"

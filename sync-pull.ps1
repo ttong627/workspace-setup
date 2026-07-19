@@ -25,6 +25,34 @@ function Log($msg) {
     Add-Content -Path $log -Value "[$ts] $msg" -Encoding UTF8
 }
 
+# ---------------------------------------------------------------------
+# 멀티계정 PC 안전 pull: repo owner 자동감지 → 해당 계정 토큰을 GH_TOKEN으로
+#   주입해 pull(전역 gh active 계정 불변). gh 없거나 미로그인이면 기존 방식 폴백.
+#   (예: 이 PC는 gh 기본 ttong627인데 프로젝트가 ttong627·ttong0627 혼재)
+# ---------------------------------------------------------------------
+$__helper = '!gh auth git-credential'
+$__tokCache = @{}
+$__hasGh = [bool](Get-Command gh -ErrorAction SilentlyContinue)
+function Invoke-RepoPull($repoDir) {
+    $tok = $null
+    if ($__hasGh) {
+        $url = git -C $repoDir remote get-url origin 2>$null
+        if ($url -match 'github\.com[:/]([^/]+)/') {
+            $owner = $Matches[1]
+            if (-not $__tokCache.ContainsKey($owner)) { $__tokCache[$owner] = (gh auth token --user $owner 2>$null) }
+            $tok = $__tokCache[$owner]
+        }
+    }
+    if ($tok) {
+        $env:GH_TOKEN = $tok
+        $out = git -C $repoDir -c credential.helper=$__helper pull --ff-only 2>&1
+        $env:GH_TOKEN = $null
+    } else {
+        $out = git -C $repoDir pull --ff-only 2>&1   # 폴백: 전역 active 계정 자격
+    }
+    return $out
+}
+
 if (-not (Test-Path $Root)) { Log "Root 없음: $Root — 종료"; return }
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Log "git 없음 — 종료"; return }
 
@@ -33,7 +61,7 @@ $ok = 0; $skip = 0
 Get-ChildItem -Path $Root -Directory | ForEach-Object {
     $repo = $_.FullName
     if (Test-Path (Join-Path $repo ".git")) {
-        $out = git -C $repo pull --ff-only 2>&1
+        $out = Invoke-RepoPull $repo
         if ($LASTEXITCODE -eq 0) { $ok++ }
         else { $skip++; Log "스킵 $($_.Name): $out" }
     }
@@ -49,7 +77,7 @@ Log "동기화 끝 — 성공 $ok / 스킵 $skip"
 # ---------------------------------------------------------------------
 $claudeDir = Join-Path $env:USERPROFILE ".claude"
 if (Test-Path (Join-Path $claudeDir ".git")) {
-    $cout = git -C $claudeDir pull --ff-only 2>&1
+    $cout = Invoke-RepoPull $claudeDir
     if ($LASTEXITCODE -eq 0) { Log "claude-config(~/.claude) 동기화 OK" }
     else { Log "claude-config 스킵: $cout" }
 }
